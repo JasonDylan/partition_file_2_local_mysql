@@ -3,5 +3,5 @@ DB_CONFIG = {
     "host": "192.168.2.108",
     "user": "juncheng",
     "password": "YOUR_PASSWORD_HERE",
-    "database": "db_junglescout_amazon_v1",
+    "database": "db_junglescout_amazon",
 }

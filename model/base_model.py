@@ -22,14 +22,14 @@ from sqlalchemy import BigInteger, Column, DateTime
 from sqlalchemy.ext.declarative import DeclarativeMeta, declarative_base
 from sqlalchemy.sql import func
 
-Base: DeclarativeMeta = declarative_base()
+Base = declarative_base()
 
 
 class BaseModel(Base):
     __abstract__ = True  # 标记为抽象类，不会创建表
     __tablename__ = None  # 显示声明用于代码提示
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    # id = Column(BigInteger, primary_key=True, autoincrement=True)
     created_datetime = Column(DateTime, nullable=False, server_default=func.now())
     modified_datetime = Column(
         DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
