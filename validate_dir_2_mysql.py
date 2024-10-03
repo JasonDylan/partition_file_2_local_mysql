@@ -47,11 +47,26 @@ def validate_one_tb_partition_dir_csv_headers(
     this_table_all_csv_header_is_formatted = True
 
     # 获取所有文件
-    all_files = get_a_table_all_file_by_format(table_path)
-
+    all_files_for_a_table = get_a_table_all_file_by_format(table_path)
+    
+    # 从db_junglescout_amazon.tb_loaded_records 根据表名筛选获取已经加载的文件
+    # 使用mysql.connector连接数据库并查询已加载的记录
+    with mysql.connector.connect(**DB_CONFIG) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(f"SELECT file_name FROM db_junglescout_amazon.tb_loaded_records WHERE table_name = '{class_obj.__tablename__}'")
+            loaded_records = cursor.fetchall()
+    
+    loaded_file_names = [record[0] for record in loaded_records]
+    # 从all_files_for_a_table中去除已经加载的文件
+    files_to_process = [file for file in all_files_for_a_table if os.path.basename(file) not in loaded_file_names]
+    
+    # 打印去除前和去除后的文件数量
+    print(f"总文件数量: {len(all_files_for_a_table)}")
+    print(f"已加载文件数量: {len(loaded_file_names)}")
+    print(f"待处理文件数量: {len(files_to_process)}")
     # 使用 tqdm 显示进度条
     for file_path in tqdm(
-        all_files, desc=f"Processing files in {class_obj.__tablename__}"
+        files_to_process, desc=f"Processing files in {class_obj.__tablename__}"
     ):
         try:
             # 只读取标题行
@@ -87,9 +102,9 @@ def validate_one_tb_partition_dir_csv_headers(
 
         except Exception as e:
             print(f"Error reading {file_path}: {e}")
-            return False, all_files  # 发生错误，退出程序
+            return False, files_to_process  # 发生错误，退出程序
 
-    return this_table_all_csv_header_is_formatted, all_files
+    return this_table_all_csv_header_is_formatted, files_to_process
 
 
 from tqdm.contrib.concurrent import thread_map
@@ -219,19 +234,19 @@ def add_pk_to_js_org_table():
 
 
 def load_partition_dir_2_mysql(
-    all_files: list[str], class_obj: base_model.BaseModel, table_path: str
+    files_to_process: list[str], class_obj: base_model.BaseModel, table_path: str
 ) -> None:
     """
     加载 CSV 文件到数据库表中.
 
-    :param all_files: 所有待加载的文件列表.
+    :param files_to_process: 所有待加载的文件列表.
     :param class_obj: 具体的 ORM 类.
     :param table_path: 表的绝对路径.
     """
     # 使用 tqdm 的并发加载
     thread_map(
         lambda file_path: load_file_to_mysql(file_path, class_obj, table_path),
-        all_files,
+        files_to_process,
         max_workers=1,  # 根据需要调整并发线程数 并发会锁表？
         desc=f"Loading files into {class_obj.__tablename__}",
     )
@@ -252,7 +267,7 @@ def validate_all_table_csv_headers(
     for relative_path, class_obj in mapping.TABLE_RELATIVE_PATH_CLASS_MAPPING.items():
         table_name = class_obj.__tablename__
         table_path = os.path.join(base_path, relative_path)  # 构建绝对路径
-        this_table_all_csv_header_is_formatted, all_files = (
+        this_table_all_csv_header_is_formatted, files_to_process = (
             validate_one_tb_partition_dir_csv_headers(
                 table_path=table_path, class_obj=class_obj
             )
@@ -261,7 +276,10 @@ def validate_all_table_csv_headers(
         if this_table_all_csv_header_is_formatted:
             print(f"{table_name=} is ok to load")
             create_table_if_not_exists(class_obj=class_obj, db_config=DB_CONFIG)
-            load_partition_dir_2_mysql(all_files, class_obj, table_path)
+            if files_to_process:  # 只有当有文件需要处理时才调用函数
+                load_partition_dir_2_mysql(files_to_process, class_obj, table_path)
+            else:
+                print(f"No new files to process for {table_name}")
         else:
             print(f"{class_obj.__tablename__=} is not ok to load")
             all_table_is_ok = False
@@ -647,14 +665,14 @@ if __name__ == "__main__":
     create_table_if_not_exists(class_obj=TbDataProduct, db_config=DB_CONFIG)
     create_table_if_not_exists(class_obj=TbDataWeek, db_config=DB_CONFIG)
     set_global_setting()
-    drop_primary_key_from_tb_sales_estimates()
+    # drop_primary_key_from_tb_sales_estimates()
     all_table_is_ok = validate_all_table_csv_headers(
         base_path
     )  # 校验 CSV 文件的 Header
-    try:
-        add_pk_to_js_org_table()
-    except Exception as ex:
-        print(f"{ex=}")
+    # try:
+    #     add_pk_to_js_org_table()
+    # except Exception as ex:
+    #     print(f"{ex=}")
 
     try:
         start_time = time.time()  # 记录整个过程开始时间
