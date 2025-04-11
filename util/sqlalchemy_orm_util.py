@@ -1,10 +1,10 @@
+import logging
 from typing import Type
 
+from config.config import DB_CONFIG  # 引入配置
 from sqlalchemy import Column, create_engine, inspect
 from sqlalchemy.ext.declarative import DeclarativeMeta
 from sqlalchemy.orm import sessionmaker
-
-from config.config import DB_CONFIG  # 引入配置
 
 
 def create_table_if_not_exists(class_obj: DeclarativeMeta, db_config=DB_CONFIG) -> None:
@@ -22,7 +22,7 @@ def create_table_if_not_exists(class_obj: DeclarativeMeta, db_config=DB_CONFIG) 
 
     # 创建表
     class_obj.metadata.create_all(engine)
-    print(f"Table {class_obj.__tablename__} created or already exists.")
+    logging.info(f"Table {class_obj.__tablename__} created or already exists.")
     session.close()
 
 

@@ -1,7 +1,7 @@
 import os
 import re
 import shutil
-
+import logging
 
 def get_a_table_all_file_by_format(table_path, required_format=".csv"):
     # 递归收集指定文件夹下，所有指定后缀的文件， 绝对路径
@@ -49,16 +49,16 @@ def copy_template_to_config(template_file_path, config_file_path):
     """
     if not os.path.exists(config_file_path):
         shutil.copy(template_file_path, config_file_path)
-        print(f"Copied {template_file_path} to {config_file_path}")
+        logging.info(f"Copied {template_file_path} to {config_file_path}")
     else:
-        print(f"{config_file_path} already exists. No action taken.")
+        logging.info(f"{config_file_path} already exists. No action taken.")
 
 
 if __name__ == "__main__":
     config_path = os.path.join("config", "config.py")  # 原始配置文件路径
     template_path = os.path.join("config", "config_template.py")  # 模板文件路径
     create_config_template(config_path, template_path)  # 上传git前先制作模板文件
-    print(f"Template created at: {template_path}")
+    logging.info(f"Template created at: {template_path}")
 
     # template_path = os.path.join('config', 'config_template.py')  # 模板文件路径
     # config_path = os.path.join('config', 'config.py')  # 目标配置文件路径

@@ -3,27 +3,25 @@
 描述: 该模块提供功能以校验 CSV 文件的头部并将其加载到 MySQL 数据库中。
 """
 
+import logging
 import os
+import sys
 import time
 
 import mysql.connector
 import pandas as pd
-from tqdm import tqdm  # 导入 tqdm
-
+import retrying
 from config.config import DB_CONFIG  # 引入配置
 from model import base_model, mapping
-from model.server_108.db_junglescout_amazon import (
-    TbDataProduct,
-    TbDataWeek,
-    TbLoadedRecords,
-    TbSalesEstimatesWeeklyV2,
-)
+from model.server_108.db_junglescout_amazon import (TbDataProduct, TbDataWeek,
+                                                    TbLoadedRecords,
+                                                    TbSalesEstimatesWeeklyV2)
+from tqdm import tqdm  # 导入 tqdm
 from util import sqlalchemy_orm_util
 from util.file_util import get_a_table_all_file_by_format
 from util.get_partition_info import (
-    extract_ordered_partition_k_v_pairs_from_path,
-    extract_partition_items,
-)
+    extract_ordered_partition_k_v_pairs_from_path, extract_partition_items)
+from util.logging_config import setup_logging
 from util.sqlalchemy_orm_util import create_table_if_not_exists
 
 
@@ -43,7 +41,7 @@ def validate_one_tb_partition_dir_csv_headers(
     )
     # 获取类的字段名称
     class_headers = sqlalchemy_orm_util.get_class_fields(class_obj)
-    print(f"{class_obj.__tablename__=}")
+    logging.info(f"{class_obj.__tablename__=}")
     this_table_all_csv_header_is_formatted = True
 
     # 获取所有文件
@@ -61,9 +59,9 @@ def validate_one_tb_partition_dir_csv_headers(
     files_to_process = [file for file in all_files_for_a_table if os.path.basename(file) not in loaded_file_names]
     
     # 打印去除前和去除后的文件数量
-    print(f"总文件数量: {len(all_files_for_a_table)}")
-    print(f"已加载文件数量: {len(loaded_file_names)}")
-    print(f"待处理文件数量: {len(files_to_process)}")
+    logging.info(f"总文件数量: {len(all_files_for_a_table)}")
+    logging.info(f"已加载文件数量: {len(loaded_file_names)}")
+    logging.info(f"待处理文件数量: {len(files_to_process)}")
     # 使用 tqdm 显示进度条
     for file_path in tqdm(
         files_to_process, desc=f"Processing files in {class_obj.__tablename__}"
@@ -89,19 +87,19 @@ def validate_one_tb_partition_dir_csv_headers(
             extra_headers: set[str] = set(a_csv_headers) - set(expected_csv_headers)
 
             if missing_headers:
-                print(f"csv  Missing headers: {missing_headers} {file_path=}")
+                logging.info(f"csv  Missing headers: {missing_headers} {file_path=}")
             if extra_headers:
-                print(f"csv  Extra headers: {extra_headers} {file_path=}")
+                logging.info(f"csv  Extra headers: {extra_headers} {file_path=}")
 
             # 如果有缺失或多余的字段，设置标记为 False
             if missing_headers or extra_headers:
                 this_table_all_csv_header_is_formatted = False
-                print(
+                logging.info(
                     f"header is error {file_path=} {extra_headers=} {missing_headers} {a_csv_headers=}"
                 )
 
         except Exception as e:
-            print(f"Error reading {file_path}: {e}")
+            logging.info(f"Error reading {file_path}: {e}")
             return False, files_to_process  # 发生错误，退出程序
 
     return this_table_all_csv_header_is_formatted, files_to_process
@@ -110,6 +108,48 @@ def validate_one_tb_partition_dir_csv_headers(
 from tqdm.contrib.concurrent import thread_map
 
 
+def retry_on_db_error(exception):
+    """判断是否需要重试的函数"""
+    # 记录错误
+    logging.error(f"数据库操作出错，准备重试: {str(exception)}", exc_info=True)
+    
+    # 如果是连接错误，增加等待时间
+    if isinstance(exception, mysql.connector.Error) and exception.errno == 2003:
+        time.sleep(500)  # 连接错误时等待更长时间
+        return True  # 连接错误总是重试
+    else:
+        time.sleep(1)  # 其他错误等待较短时间
+        return True  # 其他错误也重试，但次数有限制
+
+
+# 用于连接错误的装饰器 - 无限重试
+def retry_on_connection_error():
+    return retrying.retry(
+        retry_on_exception=lambda e: isinstance(e, mysql.connector.Error) and e.errno == 2003,
+        wait_fixed=500000,  # 500秒
+        stop_max_attempt_number=None  # 无限重试
+    )
+
+
+# 用于其他数据库错误的装饰器 - 重试3次
+def retry_on_other_errors():
+    return retrying.retry(
+        retry_on_exception=lambda e: not (isinstance(e, mysql.connector.Error) and e.errno == 2003),
+        wait_fixed=1000,  # 1秒
+        stop_max_attempt_number=3
+    )
+
+
+# 组合两个装饰器
+def with_db_retry(func):
+    @retry_on_connection_error()
+    @retry_on_other_errors()
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+    return wrapper
+
+
+@with_db_retry
 def load_file_to_mysql(
     file_path: str, class_obj: base_model.BaseModel, table_path: str
 ) -> None:
@@ -121,7 +161,7 @@ def load_file_to_mysql(
     :param table_path: 表的绝对路径.
     """
     try:
-        print(f"start {file_path=}")
+        logging.info(f"start {file_path=}")
         table_name = class_obj.__tablename__
         base_model_header = sqlalchemy_orm_util.get_abstract_class_fields(
             base_model.BaseModel
@@ -200,14 +240,16 @@ def load_file_to_mysql(
                 )
                 connection.commit()
 
-        print(f"Done {file_path=}")  # 执行加载逻辑
+        logging.info(f"Done {file_path=}")  # 执行加载逻辑
         return True  # 表示成功
     except Exception as ex:
-        print(f"{ex=}")
+        logging.info(f"{ex=}")
         return False  # 表示失败
 
 
+@with_db_retry
 def add_pk_to_js_org_table():
+    """添加主键到原始表"""
     with mysql.connector.connect(**DB_CONFIG) as connection:
         with connection.cursor() as cursor:
             sql_add_pk = """
@@ -215,19 +257,11 @@ def add_pk_to_js_org_table():
                 ADD CONSTRAINT tb_sales_estimates_weekly_v2_pk 
                 PRIMARY KEY (marketplace, root_category_id, `year`, week, start_date, end_date, asin)
             """
-
-            start_time = time.time()  # 记录开始时间
-            try:
-                cursor.execute(sql_add_pk)
-                connection.commit()
-            except mysql.connector.Error as err:
-                print(f"Error: {err}")
-            else:
-                end_time = time.time()  # 记录结束时间
-                execution_time = end_time - start_time
-                print(
-                    f"Primary key added successfully in {execution_time:.2f} seconds."
-                )
+            start_time = time.time()
+            cursor.execute(sql_add_pk)
+            connection.commit()
+            end_time = time.time()
+            logging.info(f"Primary key added successfully in {end_time - start_time:.2f} seconds.")
 
 
 # 调用函数
@@ -274,19 +308,20 @@ def validate_all_table_csv_headers(
         )
 
         if this_table_all_csv_header_is_formatted:
-            print(f"{table_name=} is ok to load")
+            logging.info(f"{table_name=} is ok to load")
             create_table_if_not_exists(class_obj=class_obj, db_config=DB_CONFIG)
             if files_to_process:  # 只有当有文件需要处理时才调用函数
                 load_partition_dir_2_mysql(files_to_process, class_obj, table_path)
             else:
-                print(f"No new files to process for {table_name}")
+                logging.info(f"No new files to process for {table_name}")
         else:
-            print(f"{class_obj.__tablename__=} is not ok to load")
+            logging.info(f"{class_obj.__tablename__=} is not ok to load")
             all_table_is_ok = False
 
     return all_table_is_ok
 
 
+@with_db_retry
 def load_partition_data_to_data_product(partition_name: str):
     """
     加载特定分区的数据到 MySQL 数据库中。
@@ -435,14 +470,16 @@ ON DUPLICATE KEY UPDATE
     try:
         with mysql.connector.connect(**DB_CONFIG) as connection:
             with connection.cursor() as cursor:
-                cursor.execute("SET sql_mode = ''")  # 清除 SQL 模式
+                cursor.execute("SET sql_mode = ''")
                 cursor.execute(sql_insert)
                 connection.commit()
-                print(f"Data loaded successfully for partition {partition_name}.")
-    except Exception as ex:
-        print(f"Error loading data for partition {partition_name}: {ex}")
+                logging.info(f"Data loaded successfully for partition {partition_name}.")
+    except Exception as e:
+        logging.error(f"加载分区数据失败: {str(e)}")
+        raise
 
 
+@with_db_retry
 def load_partition_data_to_data_week(partition_name: str):
     """
     加载特定分区的数据到 MySQL 数据库中。
@@ -625,20 +662,39 @@ ON DUPLICATE KEY UPDATE
             with connection.cursor() as cursor:
                 cursor.execute(sql_insert)
                 connection.commit()
-                print(f"Data loaded successfully for partition {partition_name}.")
-    except Exception as ex:
-        print(f"Error loading data for partition {partition_name}: {ex}")
+                
+                # 提取年份和周数
+                year = int(partition_name[1:5])  # 从 p202507 中提取 2025
+                week = int(partition_name[5:])   # 从 p202507 中提取 07
+                partition_num = int(partition_name[1:])
+                
+                # 插入状态记录
+                status_insert = """
+                INSERT INTO db_junglescout_amazon.tb_dataweek_processing_status 
+                (year, week, partition_num, status)
+                VALUES (%s, %s, %s, 'pending')
+                ON DUPLICATE KEY UPDATE status = VALUES(status)
+                """
+                cursor.execute(status_insert, (year, week, partition_num))
+                connection.commit()
+                
+                logging.info(f"Data loaded successfully for partition {partition_name}.")
+    except Exception as e:
+        logging.error(f"加载分区数据失败: {str(e)}")
+        raise
 
 
+@with_db_retry
 def execute_query(query):
     try:
         with mysql.connector.connect(**DB_CONFIG) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(query)
                 connection.commit()
-                print(f"done {query=}")
-    except mysql.connector.Error as err:
-        print(f"Error query {err}")
+                logging.info(f"done {query=}")
+    except Exception as e:
+        logging.error(f"执行查询失败: {str(e)}")
+        raise
 
 
 def set_global_setting():
@@ -655,10 +711,12 @@ def drop_primary_key_from_tb_sales_estimates():
     DROP PRIMARY KEY;
     """
     execute_query(query=sql_drop_pk)
-    print("Primary key dropped successfully from tb_sales_estimates_weekly_v2.")
+    logging.info("Primary key dropped successfully from tb_sales_estimates_weekly_v2.")
 
 
 if __name__ == "__main__":
+    
+    setup_logging(__file__, sys.argv)
     base_path = "/home/changliu/junglescout"  # 替换为实际的绝对路径
 
     create_table_if_not_exists(class_obj=TbSalesEstimatesWeeklyV2, db_config=DB_CONFIG)
@@ -672,7 +730,7 @@ if __name__ == "__main__":
     # try:
     #     add_pk_to_js_org_table()
     # except Exception as ex:
-    #     print(f"{ex=}")
+    #     logging.info(f"{ex=}")
 
     try:
         start_time = time.time()  # 记录整个过程开始时间
@@ -686,26 +744,26 @@ if __name__ == "__main__":
             load_partition_data_to_data_product(partition)
             partition_end_time = time.time()  # 记录每个分区结束时间
             partition_execution_time = partition_end_time - partition_start_time
-            print(
+            logging.info(
                 f"Done loading data to data product for partition: {partition} in {partition_execution_time:.2f} seconds"
             )
 
-        print("Done load_partition_data_to_data_product")
+        logging.info("Done load_partition_data_to_data_product")
 
         for partition in tqdm(partitions, desc="Loading Data Week"):
             partition_start_time = time.time()  # 记录每个分区开始时间
             load_partition_data_to_data_week(partition)
             partition_end_time = time.time()  # 记录每个分区结束时间
             partition_execution_time = partition_end_time - partition_start_time
-            print(
+            logging.info(
                 f"Done loading data to data week for partition: {partition} in {partition_execution_time:.2f} seconds"
             )
 
-        print("Done load_partition_data_to_data_week")
+        logging.info("Done load_partition_data_to_data_week")
 
         end_time = time.time()  # 记录整个过程结束时间
         total_execution_time = end_time - start_time
-        print(f"Total execution time: {total_execution_time:.2f} seconds")
+        logging.info(f"Total execution time: {total_execution_time:.2f} seconds")
 
     except Exception as ex:
-        print(f"Error occurred: {ex}")
+        logging.info(f"Error occurred: {ex}")

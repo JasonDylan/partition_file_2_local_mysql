@@ -1,3 +1,7 @@
+
+import logging
+
+
 def snake_case_2_PascalCase(table_name):
     parts = table_name.split("_")
     return "".join(part.capitalize() for part in parts)
@@ -16,7 +20,7 @@ def convert_to_lowercase(input_string: str) -> str:
 if __name__ == "__main__":
     # 示例
     class_name = snake_case_2_PascalCase("tb_sales_estimates_weekly_v2")
-    print(class_name)  # 输出: TbSalesEstimatesWeeklyV2
+    logging.info(class_name)  # 输出: TbSalesEstimatesWeeklyV2
 
     # 示例使用
     to_convert_list = [
@@ -26,5 +30,5 @@ if __name__ == "__main__":
         lowercase_string = example_string.lower()
 
         uppercase_string = example_string.upper()
-        print(lowercase_string)  # 输出: hello, world!
-        print(uppercase_string)  # 输出: hello, world!
+        logging.info(lowercase_string)  # 输出: hello, world!
+        logging.info(uppercase_string)  # 输出: hello, world!
