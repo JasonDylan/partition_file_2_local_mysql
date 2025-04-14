@@ -3,7 +3,7 @@ config.py
 __pycache__/
 *.py[cod]
 *$py.class
-
+*.log*
 # C extensions
 *.so
 

@@ -663,19 +663,16 @@ ON DUPLICATE KEY UPDATE
                 cursor.execute(sql_insert)
                 connection.commit()
                 
-                # 提取年份和周数
-                year = int(partition_name[1:5])  # 从 p202507 中提取 2025
-                week = int(partition_name[5:])   # 从 p202507 中提取 07
                 partition_num = int(partition_name[1:])
                 
                 # 插入状态记录
                 status_insert = """
                 INSERT INTO db_junglescout_amazon.tb_dataweek_processing_status 
-                (year, week, partition_num, status)
-                VALUES (%s, %s, %s, 'pending')
+                (partition_num, status)
+                VALUES (%s, 'pending')
                 ON DUPLICATE KEY UPDATE status = VALUES(status)
                 """
-                cursor.execute(status_insert, (year, week, partition_num))
+                cursor.execute(status_insert, (partition_num,))
                 connection.commit()
                 
                 logging.info(f"Data loaded successfully for partition {partition_name}.")
@@ -739,14 +736,14 @@ if __name__ == "__main__":
         partitions = [f"p{item}" for item in range(1024)]  # 根据您的分区名称调整
 
         # 使用 tqdm 显示进度条
-        for partition in tqdm(partitions, desc="Loading data_product"):
-            partition_start_time = time.time()  # 记录每个分区开始时间
-            load_partition_data_to_data_product(partition)
-            partition_end_time = time.time()  # 记录每个分区结束时间
-            partition_execution_time = partition_end_time - partition_start_time
-            logging.info(
-                f"Done loading data to data product for partition: {partition} in {partition_execution_time:.2f} seconds"
-            )
+        # for partition in tqdm(partitions, desc="Loading data_product"):
+        #     partition_start_time = time.time()  # 记录每个分区开始时间
+        #     load_partition_data_to_data_product(partition)
+        #     partition_end_time = time.time()  # 记录每个分区结束时间
+        #     partition_execution_time = partition_end_time - partition_start_time
+        #     logging.info(
+        #         f"Done loading data to data product for partition: {partition} in {partition_execution_time:.2f} seconds"
+        #     )
 
         logging.info("Done load_partition_data_to_data_product")
 
