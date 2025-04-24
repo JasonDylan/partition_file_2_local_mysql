@@ -16,6 +16,7 @@ from model import base_model, mapping
 from model.server_108.db_junglescout_amazon import (TbDataProduct, TbDataWeek,
                                                     TbLoadedRecords,
                                                     TbSalesEstimatesWeeklyV2)
+                                                    
 from tqdm import tqdm  # 导入 tqdm
 from util import sqlalchemy_orm_util
 from util.file_util import get_a_table_all_file_by_format
@@ -122,34 +123,36 @@ def retry_on_db_error(exception):
         return True  # 其他错误也重试，但次数有限制
 
 
-# 用于连接错误的装饰器 - 无限重试
-def retry_on_connection_error():
+# 用于连接错误的装饰器 - 可配置重试次数，默认无限重试
+def retry_on_connection_error(max_attempts=None):
     return retrying.retry(
         retry_on_exception=lambda e: isinstance(e, mysql.connector.Error) and e.errno == 2003,
         wait_fixed=500000,  # 500秒
-        stop_max_attempt_number=None  # 无限重试
+        stop_max_attempt_number=max_attempts  # None表示无限重试
     )
 
 
-# 用于其他数据库错误的装饰器 - 重试3次
-def retry_on_other_errors():
+# 用于其他数据库错误的装饰器 - 可配置重试次数，默认3次
+def retry_on_other_errors(max_attempts=3):
     return retrying.retry(
         retry_on_exception=lambda e: not (isinstance(e, mysql.connector.Error) and e.errno == 2003),
         wait_fixed=1000,  # 1秒
-        stop_max_attempt_number=3
+        stop_max_attempt_number=max_attempts
     )
 
 
-# 组合两个装饰器
-def with_db_retry(func):
-    @retry_on_connection_error()
-    @retry_on_other_errors()
-    def wrapper(*args, **kwargs):
-        return func(*args, **kwargs)
-    return wrapper
+# 组合两个装饰器，可配置重试次数
+def with_db_retry(connection_retries=None, other_retries=3):
+    def decorator(func):
+        @retry_on_connection_error(connection_retries)
+        @retry_on_other_errors(other_retries)
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
 
-@with_db_retry
+@with_db_retry(connection_retries=None, other_retries=5)
 def load_file_to_mysql(
     file_path: str, class_obj: base_model.BaseModel, table_path: str
 ) -> None:
@@ -247,7 +250,7 @@ def load_file_to_mysql(
         return False  # 表示失败
 
 
-@with_db_retry
+@with_db_retry(connection_retries=10, other_retries=3)
 def add_pk_to_js_org_table():
     """添加主键到原始表"""
     with mysql.connector.connect(**DB_CONFIG) as connection:
@@ -321,7 +324,7 @@ def validate_all_table_csv_headers(
     return all_table_is_ok
 
 
-@with_db_retry
+@with_db_retry(connection_retries=None, other_retries=20)
 def load_partition_data_to_data_product(partition_name: str):
     """
     加载特定分区的数据到 MySQL 数据库中。
@@ -479,7 +482,7 @@ ON DUPLICATE KEY UPDATE
         raise
 
 
-@with_db_retry
+@with_db_retry(connection_retries=None, other_retries=20)
 def load_partition_data_to_data_week(partition_name: str):
     """
     加载特定分区的数据到 MySQL 数据库中。
@@ -678,10 +681,14 @@ ON DUPLICATE KEY UPDATE
                 logging.info(f"Data loaded successfully for partition {partition_name}.")
     except Exception as e:
         logging.error(f"加载分区数据失败: {str(e)}")
+        # 如果是lock wait timeout exceeded; try restarting transaction 错误，则休眠20分钟
+        if "Lock wait timeout exceeded; try restarting transaction" in str(e):
+            logging.info(f"休眠20分钟")
+            time.sleep(1200)
         raise
 
 
-@with_db_retry
+@with_db_retry(connection_retries=None, other_retries=20)
 def execute_query(query):
     try:
         with mysql.connector.connect(**DB_CONFIG) as connection:
