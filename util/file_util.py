@@ -55,11 +55,11 @@ def copy_template_to_config(template_file_path, config_file_path):
 
 
 if __name__ == "__main__":
-    config_path = os.path.join("config", "config.py")  # 原始配置文件路径
-    template_path = os.path.join("config", "config_template.py")  # 模板文件路径
+    config_path = os.path.join("project_config", "project_config.py")  # 原始配置文件路径
+    template_path = os.path.join("project_config", "config_template.py")  # 模板文件路径
     create_config_template(config_path, template_path)  # 上传git前先制作模板文件
     logging.info(f"Template created at: {template_path}")
 
-    # template_path = os.path.join('config', 'config_template.py')  # 模板文件路径
-    # config_path = os.path.join('config', 'config.py')  # 目标配置文件路径
+    # template_path = os.path.join('project_config', 'config_template.py')  # 模板文件路径
+    # config_path = os.path.join('project_config', 'project_config.py')  # 目标配置文件路径
     # copy_template_to_config(template_path, config_path)  # 还原

@@ -1,7 +1,7 @@
 import logging
 from typing import Type
 
-from config.config import DB_CONFIG  # 引入配置
+from project_config.project_config import DB_CONFIG  # 引入配置
 from sqlalchemy import Column, create_engine, inspect
 from sqlalchemy.ext.declarative import DeclarativeMeta
 from sqlalchemy.orm import sessionmaker

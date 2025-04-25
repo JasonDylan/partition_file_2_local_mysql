@@ -1,4 +1,4 @@
-config.py
+project_config.py
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -6,7 +6,7 @@ __pycache__/
 *.log*
 # C extensions
 *.so
-
+password.py
 # Distribution / packaging
 .Python
 build/

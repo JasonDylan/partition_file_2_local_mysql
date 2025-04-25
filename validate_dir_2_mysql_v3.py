@@ -16,8 +16,8 @@ from model import base_model, mapping
 from model.server_108.db_junglescout_amazon import (TbDataProduct, TbDataWeek,
                                                     TbLoadedRecords,
                                                     TbSalesEstimatesWeeklyV2)
-                                                    
 from tqdm import tqdm  # 导入 tqdm
+from tqdm.contrib.concurrent import thread_map
 from util import sqlalchemy_orm_util
 from util.file_util import get_a_table_all_file_by_format
 from util.get_partition_info import (
@@ -106,21 +106,6 @@ def validate_one_tb_partition_dir_csv_headers(
     return this_table_all_csv_header_is_formatted, files_to_process
 
 
-from tqdm.contrib.concurrent import thread_map
-
-
-def retry_on_db_error(exception):
-    """判断是否需要重试的函数"""
-    # 记录错误
-    logging.error(f"数据库操作出错，准备重试: {str(exception)}", exc_info=True)
-    
-    # 如果是连接错误，增加等待时间
-    if isinstance(exception, mysql.connector.Error) and exception.errno == 2003:
-        time.sleep(500)  # 连接错误时等待更长时间
-        return True  # 连接错误总是重试
-    else:
-        time.sleep(1)  # 其他错误等待较短时间
-        return True  # 其他错误也重试，但次数有限制
 
 
 # 用于连接错误的装饰器 - 可配置重试次数，默认无限重试
@@ -266,10 +251,7 @@ def add_pk_to_js_org_table():
             end_time = time.time()
             logging.info(f"Primary key added successfully in {end_time - start_time:.2f} seconds.")
 
-
 # 调用函数
-
-
 def load_partition_dir_2_mysql(
     files_to_process: list[str], class_obj: base_model.BaseModel, table_path: str
 ) -> None:

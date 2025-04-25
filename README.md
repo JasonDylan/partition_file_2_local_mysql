@@ -8,9 +8,9 @@ s3 to mysql/s3_2_mysql
 
 ## 目录结构
 .
-├── config                    # 配置文件目录
+├── project_config                    # 配置文件目录
 
-│   ├── config.py            # 数据库连接配置和其他设置
+│   ├── project_config.py            # 数据库连接配置和其他设置
 
 │   └── config_template.py    # 配置模板，包含敏感信息的占位符
 
