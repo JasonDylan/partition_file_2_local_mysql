@@ -37,10 +37,11 @@ import pymongo
 import retrying
 import sqlalchemy
 from dateutil import parser
-from project_config.project_config import MYSQL_DEFAULT_SUPPORT_DATA_CONFIG
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
 from sqlalchemy.sql import text
+
+from project_config.project_config import MYSQL_DEFAULT_SUPPORT_DATA_CONFIG
 
 
 def with_db_retry(
@@ -138,12 +139,12 @@ def execute_with_retry(
 
 
 def check_mysql_config(
-    project_config: Dict[str, Any], config_name: str = "mysql_config"
+    config: Dict[str, Any], config_name: str = "mysql_config"
 ) -> None:
     """检查MySQL配置是否包含所需的所有字段
 
     Args:
-        project_config: MySQL配置字典
+        config: MySQL配置字典
         config_name: 配置名称，用于错误信息
 
     Raises:
@@ -151,15 +152,15 @@ def check_mysql_config(
     """
     required_fields = ["database", "username", "password", "host", "port"]
     for field in required_fields:
-        if field not in project_config:
+        if field not in config:
             raise ValueError(f"{config_name} must contain a '{field}' key")
 
 
-def create_mysql_engine(project_config: Dict[str, Any], **kwargs) -> sqlalchemy.engine.Engine:
+def create_mysql_engine(config: Dict[str, Any], **kwargs) -> sqlalchemy.engine.Engine:
     """根据配置创建MySQL engine
 
     Args:
-        project_config: MySQL配置字典
+        config: MySQL配置字典
         **kwargs: 传递给create_engine的额外参数
 
     Returns:
@@ -167,11 +168,11 @@ def create_mysql_engine(project_config: Dict[str, Any], **kwargs) -> sqlalchemy.
     """
     engine_url = URL.create(
         "mysql+pymysql",
-        username=project_config["username"],
-        password=project_config["password"],
-        host=project_config["host"],
-        port=project_config["port"],
-        database=project_config["database"],
+        username=config["username"],
+        password=config["password"],
+        host=config["host"],
+        port=config["port"],
+        database=config["database"],
     )
 
     default_engine_args = {
@@ -244,11 +245,11 @@ class BaseHandler:
             self.engine = create_mysql_engine(mysql_config)
 
             # 创建target engines
-            for db_name, project_config in self.target_mysql_configs.items():
+            for db_name, config in self.target_mysql_configs.items():
                 logging.info(f"Creating engine for database: {db_name}")
-                check_mysql_config(project_config, f"target_config_{db_name}")
-                target_engine = create_mysql_engine(project_config)
-                self.target_engines[project_config["database"]] = target_engine
+                check_mysql_config(config, f"target_config_{db_name}")
+                target_engine = create_mysql_engine(config)
+                self.target_engines[config["database"]] = target_engine
             logging.info(f"Created {len(self.target_engines)} target engines")
         else:
             logging.warning(
@@ -605,15 +606,16 @@ class BaseHandler:
             raise ValueError("Engine is required when loading from database")
 
         try:
+            # 获取所有数据
             query = """
             SELECT 
                 country_code,
                 marketplace_id,
                 keepa_id,
                 domain_suffix,
-                currency_code
+                currency_code,
+                region_system
             FROM analyze_support_data.tb_region_country_marketplace_domain_suffix_keepa_id
-            WHERE keepa_id IS NOT NULL
             """
 
             with engine.connect() as conn:
@@ -626,7 +628,6 @@ class BaseHandler:
             country_to_domain = {}
             domain_to_country = {}
             domain_to_suffix = {}
-            domain_to_language = {}  # 这个可能需要手动维护，因为数据库中没有语言信息
 
             for row in rows:
                 country_code = row.country_code
@@ -634,17 +635,26 @@ class BaseHandler:
                 domain_id = row.keepa_id
                 suffix = row.domain_suffix
                 currency = row.currency_code
+                region_system = row.region_system
 
+                # 处理货币到国家的映射（EUR特殊处理）
                 if currency and country_code:
-                    currency_to_country[currency] = country_code
+                    if currency == "EUR":
+                        currency_to_country[currency] = "EU"
+                    else:
+                        currency_to_country[currency] = country_code
+
+                # 处理marketplace到国家的映射
                 if marketplace_id and country_code:
                     marketplace_to_country[marketplace_id] = country_code
-                if country_code and domain_id:
-                    country_to_domain[country_code] = domain_id
-                if domain_id and country_code:
-                    domain_to_country[domain_id] = country_code
-                if domain_id and suffix:
-                    domain_to_suffix[domain_id] = suffix
+
+                # 只处理有keepa_id的domain相关映射
+                if domain_id is not None:
+                    if country_code:
+                        country_to_domain[country_code] = domain_id
+                        domain_to_country[domain_id] = country_code
+                    if suffix:
+                        domain_to_suffix[domain_id] = suffix
 
             # 手动设置语言映射（因为数据库中没有）
             domain_to_language = {
