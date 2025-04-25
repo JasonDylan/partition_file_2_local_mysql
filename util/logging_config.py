@@ -47,7 +47,7 @@ def setup_logging(file_path: str, argv: List[str] = sys.argv):
     detailed_log_file_path = os.path.join(log_folder, log_folder_name, "log.log")
     os.makedirs(os.path.dirname(detailed_log_file_path), exist_ok=True)
     file_handler = logging.handlers.TimedRotatingFileHandler(
-        detailed_log_file_path, when="midnight", interval=1, backupCount=30
+        detailed_log_file_path, when="midnight", interval=1, backupCount=180
     )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)

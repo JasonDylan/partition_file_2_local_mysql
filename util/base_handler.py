@@ -11,16 +11,36 @@ A.映射的变量
     4. domain_to_country:       domain_id 与 country_code 的映射
     5. domain_to_suffix:        domain_id 与 suffix 的映射
     6. domain_to_language:      domain_id 与 language 的映射 编码ISO 639-1 语言代码
+
 B. 数据库连接方法
     1. __init__:                初始化BaseHandler以确保静态数据被加载
     2. get_engine_by_database:  获取engine
     3. get_collection_name:     根据collection_name和domain_id获取collection
     4. get_mongo_collection:    获取mongodb collection
     5. close_connections:       关闭连接
-    6. handle_error:            处理错误
+    6. handle_error:           处理错误
     7. build_timestamp_query:   构建mongodb timestamp查询
     8. build_id_query:          构建mongodb id查询
-    9. build_query:             构建 mysql查询
+    9. build_query:             构建mysql查询
+    10. execute_with_retry:     执行SQL查询并处理重试机制
+    11. get_target_connection:  获取指定数据库的连接
+
+C. ORM工具方法
+    1. create_table_if_not_exists:  创建表（如果不存在）
+    2. get_abstract_class_fields:   获取抽象类中的字段名
+    3. get_class_fields:           获取具体类的字段名
+    4. preprocess_field_value:     根据字段类型预处理字段值
+
+D. 数据库配置工具
+    1. check_mysql_config:     检查MySQL配置是否完整
+    2. create_mysql_engine:    根据配置创建MySQL engine
+    3. load_mapping_data:      加载映射数据（从本地JSON或数据库）
+
+E. 数据处理工具
+    1. format_date:            格式化日期（支持多国语言）
+    2. get_date_formats:       获取不同语言的日期格式
+    3. load_country_data:      加载国家数据
+    4. get_collections_with_domain_ids: 获取带domain_id的collections
 """
 
 import contextlib
@@ -37,11 +57,72 @@ import pymongo
 import retrying
 import sqlalchemy
 from dateutil import parser
-from sqlalchemy import create_engine, text
+from sqlalchemy import Column, create_engine, inspect, text
 from sqlalchemy.engine import URL
+from sqlalchemy.ext.declarative import DeclarativeMeta
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy.sql import text
 
+from project_config.project_config import DB_CONFIG  # 引入配置
 from project_config.project_config import MYSQL_DEFAULT_SUPPORT_DATA_CONFIG
+
+
+def create_table_if_not_exists(class_obj: DeclarativeMeta, db_config=DB_CONFIG) -> None:
+    """
+    创建表，如果表不存在的话.
+
+    :param class_obj: 具体的 ORM 类.
+    """
+    # 使用 SQLAlchemy 创建数据库引擎
+    engine = create_engine(
+        f"mysql+mysqlconnector://{db_config['user']}:{db_config['password']}@{db_config['host']}/{db_config['database']}"
+    )
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    # 创建表
+    class_obj.metadata.create_all(engine)
+    logging.info(f"Table {class_obj.__tablename__} created or already exists.")
+    session.close()
+
+
+def get_abstract_class_fields(abstract_class: type) -> list[str]:
+    """
+    获取抽象类中的字段名.
+
+    :param abstract_class: 抽象类，通常是 BaseModel.
+    :return: 字段名列表.
+    """
+    return [
+        attr
+        for attr in dir(abstract_class)
+        if isinstance(getattr(abstract_class, attr), Column)
+    ]
+
+
+def get_class_fields(cls: type) -> list[str]:
+    """
+    获取具体类的字段名.
+
+    :param cls: 具体的 ORM 类.
+    :return: 字段名列表.
+    """
+    return [column.name for column in inspect(cls).c]
+
+
+def snake_case_2_PascalCase(table_name):
+    parts = table_name.split("_")
+    return "".join(part.capitalize() for part in parts)
+
+
+def convert_to_lowercase(input_string: str) -> str:
+    """
+    将输入字符串中的所有大写字母转换为小写字母。
+
+    :param input_string: 输入字符串
+    :return: 转换后的字符串
+    """
+    return input_string.lower()
 
 
 def with_db_retry(

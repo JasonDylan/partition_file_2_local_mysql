@@ -11,19 +11,17 @@ import time
 import mysql.connector
 import pandas as pd
 import retrying
-from project_config.project_config import DB_CONFIG  # 引入配置
+from tqdm import tqdm  # 导入 tqdm
+
 from model import base_model, mapping
 from model.server_108.db_junglescout_amazon import (TbDataProduct, TbDataWeek,
                                                     TbLoadedRecords,
                                                     TbSalesEstimatesWeeklyV2)
-                                                    
-from tqdm import tqdm  # 导入 tqdm
+from project_config.project_config import DB_CONFIG  # 引入配置
 from util import sqlalchemy_orm_util
-from util.file_util import get_a_table_all_file_by_format
-from util.get_partition_info import (
-    extract_ordered_partition_k_v_pairs_from_path, extract_partition_items)
+from util.file_util import get_a_table_all_file_by_format,extract_ordered_partition_k_v_pairs_from_path, extract_partition_items
 from util.logging_config import setup_logging
-from util.sqlalchemy_orm_util import create_table_if_not_exists
+from util.base_handler import create_table_if_not_exists
 
 
 def validate_one_tb_partition_dir_csv_headers(
