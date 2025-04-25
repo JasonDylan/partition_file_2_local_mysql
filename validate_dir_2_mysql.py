@@ -14,7 +14,7 @@ import retrying
 from tqdm import tqdm  # 导入 tqdm
 
 from model import base_model, mapping
-from model.server_108.db_junglescout_amazon import (TbDataProduct, TbDataWeek,
+from model.mysql.server_108.db_junglescout_amazon import (TbDataProduct, TbDataWeek,
                                                     TbLoadedRecords,
                                                     TbSalesEstimatesWeeklyV2)
 from project_config.project_config import DB_CONFIG  # 引入配置

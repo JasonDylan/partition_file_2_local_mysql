@@ -1,5 +1,6 @@
 from model import base_model
-from model.server_108 import db_junglescout_amazon, db_junglescout_amazon_v3
+from model.mysql.server_108 import (db_junglescout_amazon,
+                                    db_junglescout_amazon_v3)
 
 # 文件路径和类对象的映射
 # TABLE_RELATIVE_PATH_CLASS_MAPPING: dict[str, DeclarativeMeta] = {
