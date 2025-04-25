@@ -12,17 +12,24 @@ import mysql.connector
 import pandas as pd
 import retrying
 from tqdm import tqdm  # 导入 tqdm
+from tqdm.contrib.concurrent import thread_map
 
-from model.mysql import S3_mysql_mapping
-from model.mysql import base_model
-from model.mysql.server_108.db_junglescout_amazon import (TbDataProduct, TbDataWeek,
-                                                    TbLoadedRecords,
-                                                    TbSalesEstimatesWeeklyV2)
+# 为config导入项目路径
+sys.path.append(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
+
+from model.mysql import S3_mysql_mapping, base_model
+from model.mysql.server_108.db_junglescout_amazon import (
+    TbDataProduct, TbDataWeek, TbLoadedRecords, TbSalesEstimatesWeeklyV2)
 from project_config.project_config import DB_CONFIG  # 引入配置
-from util import sqlalchemy_orm_util
-from util.file_util import get_a_table_all_file_by_format,extract_ordered_partition_k_v_pairs_from_path, extract_partition_items
+from util.base_handler import (create_table_if_not_exists,
+                               get_abstract_class_fields, get_class_fields,
+                               with_db_retry)
+from util.file_util import (extract_ordered_partition_k_v_pairs_from_path,
+                            extract_partition_items,
+                            get_a_table_all_file_by_format)
 from util.logging_config import setup_logging
-from util.base_handler import create_table_if_not_exists
 
 
 def validate_one_tb_partition_dir_csv_headers(
@@ -36,11 +43,11 @@ def validate_one_tb_partition_dir_csv_headers(
     :return: (是否所有 CSV 文件的头部格式正确, 所有文件列表).
     """
     # 获取 baseModel 的字段
-    base_model_header = sqlalchemy_orm_util.get_abstract_class_fields(
+    base_model_header = get_abstract_class_fields(
         base_model.BaseModel
     )
     # 获取类的字段名称
-    class_headers = sqlalchemy_orm_util.get_class_fields(class_obj)
+    class_headers = get_class_fields(class_obj)
     logging.info(f"{class_obj.__tablename__=}")
     this_table_all_csv_header_is_formatted = True
 
@@ -105,53 +112,10 @@ def validate_one_tb_partition_dir_csv_headers(
     return this_table_all_csv_header_is_formatted, files_to_process
 
 
-from tqdm.contrib.concurrent import thread_map
 
 
-def retry_on_db_error(exception):
-    """判断是否需要重试的函数"""
-    # 记录错误
-    logging.error(f"数据库操作出错，准备重试: {str(exception)}", exc_info=True)
-    
-    # 如果是连接错误，增加等待时间
-    if isinstance(exception, mysql.connector.Error) and exception.errno == 2003:
-        time.sleep(500)  # 连接错误时等待更长时间
-        return True  # 连接错误总是重试
-    else:
-        time.sleep(1)  # 其他错误等待较短时间
-        return True  # 其他错误也重试，但次数有限制
 
-
-# 用于连接错误的装饰器 - 可配置重试次数，默认无限重试
-def retry_on_connection_error(max_attempts=None):
-    return retrying.retry(
-        retry_on_exception=lambda e: isinstance(e, mysql.connector.Error) and e.errno == 2003,
-        wait_fixed=500000,  # 500秒
-        stop_max_attempt_number=max_attempts  # None表示无限重试
-    )
-
-
-# 用于其他数据库错误的装饰器 - 可配置重试次数，默认3次
-def retry_on_other_errors(max_attempts=3):
-    return retrying.retry(
-        retry_on_exception=lambda e: not (isinstance(e, mysql.connector.Error) and e.errno == 2003),
-        wait_fixed=1000,  # 1秒
-        stop_max_attempt_number=max_attempts
-    )
-
-
-# 组合两个装饰器，可配置重试次数
-def with_db_retry(connection_retries=None, other_retries=3):
-    def decorator(func):
-        @retry_on_connection_error(connection_retries)
-        @retry_on_other_errors(other_retries)
-        def wrapper(*args, **kwargs):
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
-
-
-@with_db_retry(connection_retries=None, other_retries=5)
+@with_db_retry(max_connection_attempts=None, max_other_attempts=5)
 def load_file_to_mysql(
     file_path: str, class_obj: base_model.BaseModel, table_path: str
 ) -> None:
@@ -165,10 +129,10 @@ def load_file_to_mysql(
     try:
         logging.info(f"start {file_path=}")
         table_name = class_obj.__tablename__
-        base_model_header = sqlalchemy_orm_util.get_abstract_class_fields(
+        base_model_header = get_abstract_class_fields(
             base_model.BaseModel
         )
-        class_headers = sqlalchemy_orm_util.get_class_fields(class_obj)
+        class_headers = get_class_fields(class_obj)
 
         # 提取分区字段
         partition_fields = extract_partition_items(
@@ -249,7 +213,7 @@ def load_file_to_mysql(
         return False  # 表示失败
 
 
-@with_db_retry(connection_retries=10, other_retries=3)
+@with_db_retry(max_connection_attempts=10, max_other_attempts=3)
 def add_pk_to_js_org_table():
     """添加主键到原始表"""
     with mysql.connector.connect(**DB_CONFIG) as connection:
@@ -323,7 +287,7 @@ def validate_all_table_csv_headers(
     return all_table_is_ok
 
 
-@with_db_retry(connection_retries=None, other_retries=20)
+@with_db_retry(max_connection_attempts=None, max_other_attempts=20)
 def load_partition_data_to_data_product(partition_name: str):
     """
     加载特定分区的数据到 MySQL 数据库中。
@@ -481,7 +445,7 @@ ON DUPLICATE KEY UPDATE
         raise
 
 
-@with_db_retry(connection_retries=None, other_retries=20)
+@with_db_retry(max_connection_attempts=None, max_other_attempts=20)
 def load_partition_data_to_data_week(partition_name: str):
     """
     加载特定分区的数据到 MySQL 数据库中。
@@ -687,7 +651,7 @@ ON DUPLICATE KEY UPDATE
         raise
 
 
-@with_db_retry(connection_retries=None, other_retries=20)
+@with_db_retry(max_connection_attempts=None, max_other_attempts=20)
 def execute_query(query):
     try:
         with mysql.connector.connect(**DB_CONFIG) as connection:

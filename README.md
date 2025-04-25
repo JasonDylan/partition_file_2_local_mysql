@@ -1,10 +1,13 @@
 # partition_dir_2_mysql
 
+本项目需要部署在192.168.2.108服务器上
+且配置S3 的token 和 secret key
+
 s3 to mysql/s3_2_mysql
 本项目用于将形如/xxx=xxx/xxx=xxx/的分区结构的csv数据结构通过mysql load file 导入mysql
 
 ## 已部署
-0 0 * * * cd /home/changliu/code/s3_2_local_mysql && /home/changliu/anaconda3/bin/python validate_dir_2_mysql.py > validate_dir_2_mysql_$(date +"\%Y\%m\%d_\%H\%M\%S").log 2>&1
+0 0 * * * cd /home/changliu/code/s3_2_local_mysql/tasks/s3_to_local_mysql && /home/changliu/anaconda3/bin/python validate_dir_2_mysql.py > validate_dir_2_mysql_$(date +"\%Y\%m\%d_\%H\%M\%S").log 2>&1
 
 ## 目录结构
 .
