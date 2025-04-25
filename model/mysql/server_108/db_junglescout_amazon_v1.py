@@ -10,7 +10,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 
-from model.base_model import BaseModel  # 导入基类
+from model.mysql.base_model import BaseModel  # 导入基类
 
 
 # 定义 tb_loaded_records 表的 ORM

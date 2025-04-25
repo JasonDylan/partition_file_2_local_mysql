@@ -13,7 +13,8 @@ import pandas as pd
 import retrying
 from tqdm import tqdm  # 导入 tqdm
 
-from model import base_model, mapping
+from model.mysql import S3_mysql_mapping
+from model.mysql import base_model
 from model.mysql.server_108.db_junglescout_amazon import (TbDataProduct, TbDataWeek,
                                                     TbLoadedRecords,
                                                     TbSalesEstimatesWeeklyV2)
@@ -299,7 +300,7 @@ def validate_all_table_csv_headers(
     all_table_is_ok = True
 
     create_table_if_not_exists(class_obj=TbLoadedRecords, db_config=DB_CONFIG)
-    for relative_path, class_obj in mapping.TABLE_RELATIVE_PATH_CLASS_MAPPING.items():
+    for relative_path, class_obj in S3_mysql_mapping.TABLE_RELATIVE_PATH_CLASS_MAPPING.items():
         table_name = class_obj.__tablename__
         table_path = os.path.join(base_path, relative_path)  # 构建绝对路径
         this_table_all_csv_header_is_formatted, files_to_process = (

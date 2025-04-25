@@ -1,4 +1,4 @@
-from model import base_model
+from model.mysql import base_model
 from model.mysql.server_108 import (db_junglescout_amazon,
                                     db_junglescout_amazon_v3)
 
